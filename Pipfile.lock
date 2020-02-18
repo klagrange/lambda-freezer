@@ -1,0 +1,25 @@
+{
+    "_meta": {
+        "hash": {
+            "sha256": "18d6ca3a444a426a7a84b9b7b34a35709914a1a864dc2bfeca38c676f9458c8e"
+        },
+        "pipfile-spec": 6,
+        "requires": {
+            "python_version": "3.6"
+        },
+        "sources": [
+            {
+                "name": "pypi",
+                "url": "https://pypi.org/simple",
+                "verify_ssl": true
+            }
+        ]
+    },
+    "default": {
+        "lambda-freezer": {
+            "editable": true,
+            "path": "."
+        }
+    },
+    "develop": {}
+}
