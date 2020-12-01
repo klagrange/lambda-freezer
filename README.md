@@ -20,8 +20,9 @@ Type "help", "copyright", "credits" or "license" for more information.
 >>> import lambda_freezer
 >>> REST_API_ID = "r5ltm5nqr6"
 >>> REGION = "us-east-1"
+>>> APILIB_DEFAULT_ALIAS_NAME = "uat"
 >>> DOMAIN_NAME = "api-library.puno.io" # this guy is optional
->>> deploy(REST_API_ID, REGION, "0.0.1", "some description", DOMAIN_NAME)
+>>> deploy(REST_API_ID, REGION, "0.0.1", "some description", APILIB_DEFAULT_ALIAS_NAME, DOMAIN_NAME)
 ```
 
 ### Flow (super opinionated)
@@ -30,7 +31,7 @@ Type "help", "copyright", "credits" or "license" for more information.
  - provider:
       name: aws
       runtime: python3.6
-      stage: latest # THIS IS SUPER IMPORTANT - CANNOT BE ANYTHING ELSE
+      stage: latest # IMPORTANT - this need to match -> APILIB_DEFAULT_ALIAS_NAME
       versionFunctions: false # versioning would be done only upon deploying/"freezing" to a stage
       apiGateway: # make sure you point to a common api gateway
         restApiId:
@@ -49,7 +50,8 @@ Type "help", "copyright", "credits" or "license" for more information.
 >>> import lambda_freezer
 >>> REST_API_ID = "r5ltm5nqr6"
 >>> REGION = "us-east-1"
+>>> APILIB_DEFAULT_ALIAS_NAME = "uat"
 >>> DOMAIN_NAME = "api-library.puno.io" # this guy is optional
->>> run_after_default_deployment(REST_API_ID, REGION, DOMAIN_NAME)
+>>> run_after_default_deployment(REST_API_ID, REGION, APILIB_DEFAULT_ALIAS_NAME, DOMAIN_NAME)
 ```
 - When you like a specific version of your functions, just "freeze" them using the deploy cmd described above.

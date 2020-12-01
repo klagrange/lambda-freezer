@@ -1,9 +1,10 @@
 from collections import namedtuple
+import os
+import subprocess
 import re
 import boto3
 import json
 
-DEFAULT_ALIAS_NAME = "latest"
 STAGE_VARIABLE_ALIAS = "lambdaAlias"
 INTEGRATION_URI_APPENDER = ":${{stageVariables.{0}}}".format(STAGE_VARIABLE_ALIAS)
 _INTEGRATION = namedtuple(
@@ -29,6 +30,7 @@ _APIFNS = namedtuple(
 STATEMENT_ID = "f6803b46-df32-4504-8c40-567a0390f549"
 CLIENT_GATEWAY = boto3.client('apigateway')
 CLIENT_LAMBDA = boto3.client('lambda')
+CLIENT_CLOUDFORMATION = boto3.client('cloudformation')
 SERVICE_FROM_PATH_PATTERN = re.compile(r"^(?:\\.|[^/\\])*/((?:\\.|[^/\\])*)/")
 
 class Mapper:
@@ -172,18 +174,18 @@ def _add_permission(api_fn, stage_name):
         }
         print(json.dumps(error_msg, indent=4))
 
-def _default_alias_is_added(fn_aliases):
+def _default_alias_is_added(fn_aliases, default_alias_name):
     """
     Checks if the `default alias` is part of a list of aliases
     """
     for alias in fn_aliases:
-        if alias["Name"] == DEFAULT_ALIAS_NAME:
+        if alias["Name"] == default_alias_name:
             return True
     return False
 
 def _create_alias(function_name, alias_name, function_version):
     """
-    Creates an alias and points to a specific version of a 
+    Creates an alias and points to a specific version of a
     (lambda) function.
     """
     CLIENT_LAMBDA.create_alias(
@@ -244,6 +246,15 @@ def _tag_documentation_exists(rest_api_id, path, http_method):
             return True
     return False
 
+def _get_cloudformation_export(exportName):
+    exports = CLIENT_CLOUDFORMATION.list_exports()
+    if 'Exports' not in exports.keys():
+        exit()
+    for export in exports['Exports']:
+        if export['Name'] == exportName:
+            return export['Value']
+    exit()
+
 def get_deployed_stages(rest_api_id):
     """
     Returns all the stages that are deployed
@@ -256,14 +267,14 @@ def get_deployed_stages(rest_api_id):
         stages.append(get_stage_res["stageName"])
     return stages
 
-def create_alias_default(api_fns):
+def create_alias_default(api_fns, default_alias_name):
     """
     Creates the so called `default alias` which is just
     an alias that points to the latest version of
     (lambda) function(s).
     """
     def create(function_name):
-        return _create_alias(function_name, DEFAULT_ALIAS_NAME, "$LATEST")
+        return _create_alias(function_name, default_alias_name, "$LATEST")
 
     for api_fn in api_fns:
         aliases = api_fn.aliases
@@ -271,11 +282,11 @@ def create_alias_default(api_fns):
         if not aliases:
             create(function_name)
         else:
-            default_is_added = _default_alias_is_added(aliases)
+            default_is_added = _default_alias_is_added(aliases, default_alias_name)
             if not default_is_added:
                 create(function_name)
 
-def update_integration_uri(api_fns):
+def update_integration_uri(api_fns, default_alias_name):
     """
     For every (lambda) functions that are integrated with
     an api gateway - updated the uri integration such that
@@ -302,18 +313,18 @@ def update_integration_uri(api_fns):
                     },
                 ]
             )
-            _add_permission(api_fn, DEFAULT_ALIAS_NAME)
+            _add_permission(api_fn, default_alias_name)
 
-def create_domain_mapping_default(rest_api_id, domain_name):
+def create_domain_mapping_default(rest_api_id, domain_name, default_alias_name):
     """
     Creates the domain name mapping for the default stage.
     """
     def create():
         CLIENT_GATEWAY.create_base_path_mapping(
             domainName=domain_name,
-            basePath=DEFAULT_ALIAS_NAME,
+            basePath=default_alias_name,
             restApiId=rest_api_id,
-            stage=DEFAULT_ALIAS_NAME
+            stage=default_alias_name
         )
 
     get_base_path_mappings_res = CLIENT_GATEWAY.get_base_path_mappings(
@@ -326,19 +337,19 @@ def create_domain_mapping_default(rest_api_id, domain_name):
     else:
         already_mapped = False
         for mapping in mappings:
-            if mapping["basePath"] == DEFAULT_ALIAS_NAME and mapping["stage"] == DEFAULT_ALIAS_NAME:
+            if mapping["basePath"] == default_alias_name and mapping["stage"] == default_alias_name:
                 already_mapped = True
 
         if not already_mapped:
             create()
 
-def default_stage_contains_staged_variable(rest_api_id):
+def default_stage_contains_staged_variable(rest_api_id, default_alias_name):
     """
     Checks if the default stage contains the `stage variable alias`.
     """
     get_stage_res = CLIENT_GATEWAY.get_stage(
         restApiId=rest_api_id,
-        stageName=DEFAULT_ALIAS_NAME
+        stageName=default_alias_name
     )
     if "variables" not in get_stage_res.keys():
         return False
@@ -347,7 +358,7 @@ def default_stage_contains_staged_variable(rest_api_id):
     if STAGE_VARIABLE_ALIAS not in stage_variables.keys():
         return False
 
-    if stage_variables[STAGE_VARIABLE_ALIAS] != DEFAULT_ALIAS_NAME:
+    if stage_variables[STAGE_VARIABLE_ALIAS] != default_alias_name:
         return False
     return True
 
@@ -376,7 +387,7 @@ def create_tag_documentation(rest_api_id, api_fns):
                 properties=json.dumps(tag),
             )
 
-def run_after_default_deployment(rest_api_id, region, domain_name=None):
+def run_after_default_deployment(rest_api_id, region, default_alias_name, domain_name=None):
     """
     Typically what you would need to run after a
     `serverless deploy` deployment.
@@ -385,19 +396,19 @@ def run_after_default_deployment(rest_api_id, region, domain_name=None):
     lambda functions via an alias, using a stage variable.
     """
     api_fns = Mapper.run(rest_api_id, region)
-    create_alias_default(api_fns)
-    update_integration_uri(api_fns)
+    create_alias_default(api_fns, default_alias_name)
+    update_integration_uri(api_fns, default_alias_name)
 
     if domain_name is not None:
-        create_domain_mapping_default(rest_api_id, domain_name)
-    create_tag_documentation(rest_api_id, api_fns)
+        create_domain_mapping_default(rest_api_id, domain_name, default_alias_name)
+    # create_tag_documentation(rest_api_id, api_fns)
 
-    contains_stage_var = default_stage_contains_staged_variable(rest_api_id)
+    contains_stage_var = default_stage_contains_staged_variable(rest_api_id, default_alias_name)
     if not contains_stage_var:
         print('''
 PLEASE ADD THE FOLLOWING STAGE VARIABLE TO [STAGE: {0}]:
-    {1} : {2}        
-'''.format(DEFAULT_ALIAS_NAME, STAGE_VARIABLE_ALIAS, DEFAULT_ALIAS_NAME))
+    {1} : {2}
+'''.format(default_alias_name, STAGE_VARIABLE_ALIAS, default_alias_name))
 
 def freeze_functions(api_fns, stage_name):
     """
@@ -459,3 +470,11 @@ def deploy(rest_api_id, region, version, stage_description, domain_name=None):
             stage=stage_name
         )
 
+def simple_push(cloudformation_rest_api_id_export_name, region, service_dir_relative_path, domain_name=None):
+    APILIB_REST_API_ID = _get_cloudformation_export(cloudformation_rest_api_id_export_name)
+
+    CURRENT_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
+
+    os.chdir(service_dir_relative_path)
+    subprocess.run(["serverless", "deploy"])
+    run_after_default_deployment(APILIB_REST_API_ID, region, domain_name)

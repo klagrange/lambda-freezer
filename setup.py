@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="lambda-freezer",
-    version="0.0.1",
+    version="0.0.8",
     author="Keith Lagrange",
     author_email="punolagrange@gmail.com",
     description="Helpers to deploy lambda functions in an immutable way",
