@@ -173,6 +173,8 @@ def _add_permission(api_fn, stage_name):
             "error": err
         }
         print(json.dumps(error_msg, indent=4))
+    except Exception as ex:
+        print(ex)
 
 def _default_alias_is_added(fn_aliases, default_alias_name):
     """
@@ -418,12 +420,17 @@ def freeze_functions(api_fns, stage_name):
     for api_fn in api_fns:
         function_name = api_fn.function_name
         publish_version_res = CLIENT_LAMBDA.publish_version(FunctionName=function_name)
-        CLIENT_LAMBDA.create_alias(
-            FunctionName=function_name,
-            Name=stage_name,
-            FunctionVersion=publish_version_res["Version"]
-        )
-        _add_permission(api_fn, stage_name)
+
+        try:
+            CLIENT_LAMBDA.create_alias(
+                FunctionName=function_name,
+                Name=stage_name,
+                FunctionVersion=publish_version_res["Version"]
+            )
+            _add_permission(api_fn, stage_name)
+        except Exception as ex:
+            print("[WARNING] error while freezing function from source arn: {0}".format(api_fn.source_arn))
+            print("DETAILS: {0}".format(ex))
 
 def deploy(rest_api_id, region, version, stage_description, domain_name=None):
     """
@@ -470,11 +477,33 @@ def deploy(rest_api_id, region, version, stage_description, domain_name=None):
             stage=stage_name
         )
 
-def simple_push(cloudformation_rest_api_id_export_name, region, service_dir_relative_path, domain_name=None):
-    APILIB_REST_API_ID = _get_cloudformation_export(cloudformation_rest_api_id_export_name)
+def re_deploy(rest_api_id, region, version, stage_description):
+    """
+    Deploys a stage to an api gateway.
+    The definition of `deploy` here is:
+        - take all resources of an api gateway (those are lambda functions at the core)
+        - the integration of those lambda functions are assumed to have been modified
+          such that only specific version
+        - `freeze` those functions and create an alias that points to those frozen versions
+        - creates a new stage under the api gateway and ensure that staged version calls only
+          those previously frozen functions
+    """
+    # # ensure that version was not already deployed
+    stage_name = version.replace(".", "-")
+    stages = get_deployed_stages(rest_api_id)
+    if stage_name not in stages:
+        exit("YOU HAVE NEVER DEPLOYED {0}".format(version))
 
-    CURRENT_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
+    # deploy frozen functions
+    CLIENT_GATEWAY.create_deployment(
+        restApiId=rest_api_id,
+        stageName=stage_name,
+        stageDescription=stage_description,
+        description=stage_description,
+        variables={
+            "{0}".format(STAGE_VARIABLE_ALIAS): stage_name
+        },
+    )
 
-    os.chdir(service_dir_relative_path)
-    subprocess.run(["serverless", "deploy"])
-    run_after_default_deployment(APILIB_REST_API_ID, region, domain_name)
+
+

@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="lambda-freezer",
-    version="0.0.8",
+    version="0.0.9",
     author="Keith Lagrange",
     author_email="punolagrange@gmail.com",
     description="Helpers to deploy lambda functions in an immutable way",
@@ -18,7 +18,7 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.6',
+    python_requires='>=3.8',
     install_requires=[
         "boto3"
     ]
